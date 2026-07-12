@@ -1193,12 +1193,6 @@ class AbstractItemNormalizerTest extends TestCase
 
     public function testDenormalizeNullableCollectionOfBackedEnums(): void
     {
-        // Nullable collection value types (NullableType wrapping ObjectType/BackedEnumType) only exist
-        // in the native TypeInfo system.
-        if (!method_exists(PropertyInfoExtractor::class, 'getType')) {
-            $this->markTestSkipped('Requires symfony/property-info >= 7.1 (native types).');
-        }
-
         $data = ['notificationType' => ['email']];
 
         $propertyNameCollectionFactory = $this->createStub(PropertyNameCollectionFactoryInterface::class);
@@ -1244,11 +1238,6 @@ class AbstractItemNormalizerTest extends TestCase
 
     public function testDenormalizeWrongTypedValueForNullableObjectPropertyPreservesNormalizerException(): void
     {
-        // Nullable object types (NullableType wrapping ObjectType) only exist in the native TypeInfo system.
-        if (!method_exists(PropertyInfoExtractor::class, 'getType')) {
-            $this->markTestSkipped('Requires symfony/property-info >= 7.1 (native types).');
-        }
-
         // What Symfony's DateTimeNormalizer throws for a value it cannot parse.
         $normalizerException = NotNormalizableValueException::createForUnexpectedDataType('The data is either not an string, an empty string, or null; you should pass a string that can be parsed with the passed format or a valid DateTime string.', false, ['string'], 'dummyDate', true);
 
@@ -1267,9 +1256,6 @@ class AbstractItemNormalizerTest extends TestCase
 
     public function testDenormalizeWrongTypedValueForNonNullableObjectPropertyPreservesNormalizerException(): void
     {
-        if (!method_exists(PropertyInfoExtractor::class, 'getType')) {
-            $this->markTestSkipped('Requires symfony/property-info >= 7.1 (native types).');
-        }
 
         $normalizerException = NotNormalizableValueException::createForUnexpectedDataType('The data is either not an string, an empty string, or null; you should pass a string that can be parsed with the passed format or a valid DateTime string.', false, ['string'], 'dummyDate', true);
 
