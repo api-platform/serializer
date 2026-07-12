@@ -1256,7 +1256,6 @@ class AbstractItemNormalizerTest extends TestCase
 
     public function testDenormalizeWrongTypedValueForNonNullableObjectPropertyPreservesNormalizerException(): void
     {
-
         $normalizerException = NotNormalizableValueException::createForUnexpectedDataType('The data is either not an string, an empty string, or null; you should pass a string that can be parsed with the passed format or a valid DateTime string.', false, ['string'], 'dummyDate', true);
 
         $normalizer = $this->createNormalizerForObjectProperty('dummyDate', Type::object(\DateTimeImmutable::class), \DateTimeImmutable::class, $normalizerException);
