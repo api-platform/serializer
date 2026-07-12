@@ -40,6 +40,7 @@ use ApiPlatform\Serializer\Tests\Fixtures\ApiResource\DummyTableInheritanceRelat
 use ApiPlatform\Serializer\Tests\Fixtures\ApiResource\DummyWithMultipleRequiredConstructorArgs;
 use ApiPlatform\Serializer\Tests\Fixtures\ApiResource\DummyWithNullableConstructorArg;
 use ApiPlatform\Serializer\Tests\Fixtures\ApiResource\NonCloneableDummy;
+use ApiPlatform\Serializer\Tests\Fixtures\ApiResource\NotificationType;
 use ApiPlatform\Serializer\Tests\Fixtures\ApiResource\PropertyCollectionIriOnly;
 use ApiPlatform\Serializer\Tests\Fixtures\ApiResource\PropertyCollectionIriOnlyRelation;
 use ApiPlatform\Serializer\Tests\Fixtures\ApiResource\RelatedDummy;
@@ -1333,6 +1334,135 @@ class AbstractItemNormalizerTest extends TestCase
         $actual = $normalizer->denormalize($data, Dummy::class);
 
         $this->assertInstanceOf(Dummy::class, $actual);
+    }
+
+    public function testDenormalizeNullableCollectionOfBackedEnums(): void
+    {
+        // Nullable collection value types (NullableType wrapping ObjectType/BackedEnumType) only exist
+        // in the native TypeInfo system.
+        if (!method_exists(PropertyInfoExtractor::class, 'getType')) {
+            $this->markTestSkipped('Requires symfony/property-info >= 7.1 (native types).');
+        }
+
+        $data = ['notificationType' => ['email']];
+
+        $propertyNameCollectionFactory = $this->createStub(PropertyNameCollectionFactoryInterface::class);
+        $propertyNameCollectionFactory->method('create')->willReturn(new PropertyNameCollection(['notificationType']));
+
+        // Mirrors what Symfony\Bridge\Doctrine\PropertyInfo\DoctrineExtractor produces for a nullable
+        // Doctrine SIMPLE_ARRAY column mapped with "enumType": both the collection and its value type
+        // end up wrapped in a NullableType.
+        $propertyMetadataFactory = $this->createStub(PropertyMetadataFactoryInterface::class);
+        $propertyMetadataFactory->method('create')->willReturn(
+            (new ApiProperty())
+                ->withNativeType(Type::nullable(Type::list(Type::nullable(Type::enum(NotificationType::class)))))
+                ->withWritable(true)
+        );
+
+        $resourceClassResolver = $this->createStub(ResourceClassResolverInterface::class);
+        $resourceClassResolver->method('isResourceClass')->willReturnMap([
+            [Dummy::class, true],
+            [NotificationType::class, false],
+        ]);
+        $resourceClassResolver->method('getResourceClass')->willReturnMap([
+            [null, Dummy::class, Dummy::class],
+        ]);
+
+        $propertyAccessor = $this->createMock(PropertyAccessorInterface::class);
+        $propertyAccessor->expects($this->once())
+            ->method('setValue')
+            ->with($this->isInstanceOf(Dummy::class), 'notificationType', [NotificationType::Email]);
+
+        $iriConverter = $this->createStub(IriConverterInterface::class);
+
+        $serializerProphecy = $this->prophesize(SerializerInterface::class);
+        $serializerProphecy->willImplement(DenormalizerInterface::class);
+        $serializerProphecy->denormalize(['email'], NotificationType::class.'[]', null, Argument::type('array'))->willReturn([NotificationType::Email]);
+
+        $normalizer = new class($propertyNameCollectionFactory, $propertyMetadataFactory, $iriConverter, $resourceClassResolver, $propertyAccessor, null, null, [], null, null) extends AbstractItemNormalizer {};
+        $normalizer->setSerializer($serializerProphecy->reveal());
+
+        $actual = $normalizer->denormalize($data, Dummy::class);
+
+        $this->assertInstanceOf(Dummy::class, $actual);
+    }
+
+    public function testDenormalizeWrongTypedValueForNullableObjectPropertyPreservesNormalizerException(): void
+    {
+        // Nullable object types (NullableType wrapping ObjectType) only exist in the native TypeInfo system.
+        if (!method_exists(PropertyInfoExtractor::class, 'getType')) {
+            $this->markTestSkipped('Requires symfony/property-info >= 7.1 (native types).');
+        }
+
+        // What Symfony's DateTimeNormalizer throws for a value it cannot parse.
+        $normalizerException = NotNormalizableValueException::createForUnexpectedDataType('The data is either not an string, an empty string, or null; you should pass a string that can be parsed with the passed format or a valid DateTime string.', false, ['string'], 'dummyDate', true);
+
+        $normalizer = $this->createNormalizerForObjectProperty('dummyDate', Type::nullable(Type::object(\DateTimeImmutable::class)), \DateTimeImmutable::class, $normalizerException);
+
+        try {
+            $normalizer->denormalize(['dummyDate' => false], Dummy::class);
+            $this->fail('Expected a NotNormalizableValueException to be thrown.');
+        } catch (NotNormalizableValueException $exception) {
+            $this->assertSame(['string', 'null'], $exception->getExpectedTypes());
+            $this->assertTrue($exception->canUseMessageForUser());
+            $this->assertSame($normalizerException->getMessage(), $exception->getMessage());
+            $this->assertSame('dummyDate', $exception->getPath());
+        }
+    }
+
+    public function testDenormalizeWrongTypedValueForNonNullableObjectPropertyPreservesNormalizerException(): void
+    {
+        if (!method_exists(PropertyInfoExtractor::class, 'getType')) {
+            $this->markTestSkipped('Requires symfony/property-info >= 7.1 (native types).');
+        }
+
+        $normalizerException = NotNormalizableValueException::createForUnexpectedDataType('The data is either not an string, an empty string, or null; you should pass a string that can be parsed with the passed format or a valid DateTime string.', false, ['string'], 'dummyDate', true);
+
+        $normalizer = $this->createNormalizerForObjectProperty('dummyDate', Type::object(\DateTimeImmutable::class), \DateTimeImmutable::class, $normalizerException);
+
+        try {
+            $normalizer->denormalize(['dummyDate' => false], Dummy::class);
+            $this->fail('Expected a NotNormalizableValueException to be thrown.');
+        } catch (NotNormalizableValueException $exception) {
+            $this->assertSame(['string'], $exception->getExpectedTypes());
+            $this->assertTrue($exception->canUseMessageForUser());
+            $this->assertSame($normalizerException->getMessage(), $exception->getMessage());
+            $this->assertSame('dummyDate', $exception->getPath());
+        }
+    }
+
+    private function createNormalizerForObjectProperty(string $attribute, Type $nativeType, string $className, NotNormalizableValueException $normalizerException): AbstractItemNormalizer
+    {
+        $propertyNameCollectionFactory = $this->createStub(PropertyNameCollectionFactoryInterface::class);
+        $propertyNameCollectionFactory->method('create')->willReturn(new PropertyNameCollection([$attribute]));
+
+        $propertyMetadataFactory = $this->createStub(PropertyMetadataFactoryInterface::class);
+        $propertyMetadataFactory->method('create')->willReturn(
+            (new ApiProperty())
+                ->withNativeType($nativeType)
+                ->withWritable(true)
+        );
+
+        $resourceClassResolver = $this->createStub(ResourceClassResolverInterface::class);
+        $resourceClassResolver->method('isResourceClass')->willReturnMap([
+            [Dummy::class, true],
+            [$className, false],
+        ]);
+        $resourceClassResolver->method('getResourceClass')->willReturnMap([
+            [null, Dummy::class, Dummy::class],
+        ]);
+
+        $propertyAccessor = $this->createStub(PropertyAccessorInterface::class);
+        $iriConverter = $this->createStub(IriConverterInterface::class);
+
+        $serializerProphecy = $this->prophesize(SerializerInterface::class);
+        $serializerProphecy->willImplement(DenormalizerInterface::class);
+        $serializerProphecy->denormalize(false, $className, null, Argument::type('array'))->willThrow($normalizerException);
+
+        $normalizer = new class($propertyNameCollectionFactory, $propertyMetadataFactory, $iriConverter, $resourceClassResolver, $propertyAccessor, null, null, [], null, null) extends AbstractItemNormalizer {};
+        $normalizer->setSerializer($serializerProphecy->reveal());
+
+        return $normalizer;
     }
 
     public function testTypeConfusionGuardPreservesPathAndExpectedType(): void
