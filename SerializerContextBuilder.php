@@ -97,7 +97,7 @@ final class SerializerContextBuilder implements SerializerContextBuilderInterfac
                 }
             }
 
-            if ('csv' === (method_exists(Request::class, 'getContentTypeFormat') ? $request->getContentTypeFormat() : $request->getContentType())) {
+            if ('csv' === $request->getContentTypeFormat()) {
                 $context[CsvEncoder::AS_COLLECTION_KEY] = $context[CsvEncoder::AS_COLLECTION_KEY] ?? false;
             }
         }
